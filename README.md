@@ -11,4 +11,4 @@ The script defines a `PermutationTest` class with various methods for data prepr
 - `permute_once()` method: creates one permutation of the data, creating new groups for comparison.
 - `run_permutation_test()` method: carries out the permutation test by generating multiple permutations, calculating clusters for each permutation, and comparing the original clusters with the permuted data.
 
-Check the Jupyter notebook for details and use.
+Check the `example.ipynb` notebook for details and use.
