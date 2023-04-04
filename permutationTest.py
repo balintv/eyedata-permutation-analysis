@@ -504,8 +504,6 @@ class PermutationTest:
                 if cluster_probs[idx] < 0.05:
                     c_start = cluster[0] - diff
                     c_end = cluster[1] - diff
-                    print(c_start, c_end)
-
                     ax_main.plot([c_start / self.freq, c_end / self.freq], [c_pos, c_pos], linewidth=2, color='orange', marker='|')
                     ax_main.annotate(f'p = {cluster_probs[idx]:.2f}', xy=(np.median([c_start / self.freq, c_end / self.freq]), c_test_pos), ha='center')
 
