@@ -4,7 +4,7 @@ This script implements a nonparametric statistical test for analyzing eye-tracki
 
 The script defines a `PermutationTest` class with various methods for data preprocessing, filtering, interpolation, and statistical testing. Given a set of input parameters, it loads the data, preprocesses it, and runs the permutation tests based on the input parameters.
 
-- `eyedata_reformat()` method :reads the input data, extracts relevant information, and groups it by subject and trial.
+- `eyedata_reformat()` method: reads the input data, extracts relevant information, and groups it by subject and trial.
 - `hampel_filter()` method: used for outlier detection and correction using the Hampel filter.
 - `filter_and_interpolate()` method applies the Hampel filter and/or linear interpolation to the data if specified.
 - `get_clusters()` method: calculates clusters of significant differences between the two groups using the specified test (parametric or non-parametric) and paired or unpaired data.
