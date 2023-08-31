@@ -82,8 +82,18 @@ class PermutationTest:
         self.sample_range = np.arange(sample_range[0], sample_range[1])
 
         # Since for some data, (-) values might be given in sample and analysis range, do this conversion        
-        self.an_start = abs(min(self.sample_range) - min(self.analysis_range))
-        self.an_end = self.an_start + max(self.analysis_range)
+        if min(self.sample_range) <= 0:
+            self.an_start = abs(min(self.sample_range) - min(self.analysis_range))
+        else:
+            self.an_start = min(self.analysis_range)
+        
+        if (sample_range[0] < 0) | (analysis_range[0] < 0):
+            self.an_end = self.an_start + max(self.analysis_range)
+        else:
+            self.an_end = max(self.analysis_range)
+
+        print(self.an_start)
+        print(self.an_end)
 
         # Reformat data
         self.group_0 = self.eyedata_reformat(self.datafile_0)
@@ -102,6 +112,14 @@ class PermutationTest:
         if self.wilcoxon_test:
             self.wilcoxon_test_results = self.run_permutation_test(paired=True, parametric=False)
             print("Permutation analysis with Wilcoxons done.")
+            
+        # Summarize data
+        self.group_0_summary = self.summarize_data(self.group_0, self.analysis_range)
+        self.group_1_summary = self.summarize_data(self.group_1, self.analysis_range)
+        
+        # Paired t-test over the averages
+        self.means_summary, self.pairedT, self.pairedP = self.within_subjects_ttest(self.group_0_summary,
+                                                                                    self.group_1_summary)
 
     def eyedata_reformat(self, filename, ids=None):
         """
@@ -112,7 +130,7 @@ class PermutationTest:
             ids (list, optional): List of specific subject IDs to include. If None, include all subjects. Defaults to None.
         
         Returns:
-            list: A list of tuples containing the reformatted dataframs and subject IDs corresponding to each subject.
+            list: A list of tuples containing the reformatted dataframes and subject IDs corresponding to each subject.
         """
         condition = pd.read_csv(filename, delimiter=',', header=0)
 
@@ -147,6 +165,69 @@ class PermutationTest:
             grouped_data.append((m, subject))
 
         return grouped_data
+
+    def summarize_data(self, data, index_range):
+        """
+        Create a summary array based on the grouped_data and a specified index_range.
+
+        Args:
+            data (list): The list of tuples containing DataFrames and subject IDs, as produced by eyedata_reformat().
+            index_range (slice): A Python slice object indicating the index range for which to calculate the average.
+
+        Returns:
+            np.array: A NumPy array with three columns - 'id', 'trial number', 'average'.
+        """
+
+        # Initialize an empty list to store the rows of the summary array
+        summary_list = []
+
+        # Loop through the tuples in grouped_data
+        for df, subject_id in data:
+
+            # Loop through the trials in each DataFrame
+            for trial in df.index:
+
+                # Extract the data for the current trial and subject, and restrict to the given index_range
+                trial_data = df.loc[trial, index_range]
+
+                # Calculate the average of the trial data within the index range
+                trial_avg = np.nanmean(trial_data)  # Using nanmean to ignore NaNs
+
+                # Append the summary information as a tuple to the summary_list
+                summary_list.append((subject_id, trial, trial_avg))
+
+        # Convert the summary list to a NumPy array
+        summary_array = np.array(summary_list, dtype=[('id', 'U10'), ('trial', 'int'), ('average', 'float64')])
+
+        return summary_array
+    
+    def within_subjects_ttest(self, summary_array1, summary_array2):
+        """
+        Perform within-subjects t-test between two conditions.
+
+        Args:
+            summary_array1 (np.array): The summary array for condition 1, as produced by create_summary_array().
+            summary_array2 (np.array): The summary array for condition 2, as produced by create_summary_array().
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the mean and t-test results per subject.
+        """
+
+        # Convert NumPy structured arrays to Pandas DataFrames
+        df1 = pd.DataFrame(summary_array1)
+        df2 = pd.DataFrame(summary_array2)
+
+        # Calculate mean across trials for each subject in each condition
+        mean_df1 = df1.groupby('id')['average'].mean().reset_index()
+        mean_df2 = df2.groupby('id')['average'].mean().reset_index()
+
+        # Merge the two mean DataFrames based on subject ID
+        merged_df = pd.merge(mean_df1, mean_df2, on='id', suffixes=('_c1', '_c2'))
+
+        # Perform paired t-test
+        t_stat, p_val = ttest_rel(merged_df['average_c1'], merged_df['average_c2'])
+
+        return merged_df, t_stat, p_val
 
     def hampel_filter(self, data, win_size, devs):
         """
@@ -212,7 +293,14 @@ class PermutationTest:
         p_per_timepoint = np.ones(l)
         t_per_timepoint = np.zeros(l)
 
-        for timepoint in range(self.an_start, self.an_end + 1):
+        if min(self.sample_range) > 0:
+            l_start = self.an_start - min(self.sample_range)
+            l_end = self.an_end - min(self.sample_range)
+        else:
+            l_start = self.an_start
+            l_end = self.an_end
+
+        for timepoint in range(l_start, l_end + 1):
             if np.sum(~np.isnan(means_1[:, timepoint])) > 0 and np.sum(~np.isnan(means_0[:, timepoint])) > 0:
                 if parametric:
                     if paired:
@@ -455,7 +543,13 @@ class PermutationTest:
             error_bar_1 = ci95_1
 
         # Set ranges and limits
-        x_range = np.arange(self.an_start, self.an_end + 1)
+        if min(self.sample_range) > 0:
+            l_start = self.an_start - min(self.sample_range)
+            l_end = self.an_end - min(self.sample_range)
+            x_range = np.arange(l_start, l_end + 1)
+        else:
+            x_range = np.arange(self.an_start, self.an_end + 1)
+
         xrange_secs = np.arange(np.min(self.analysis_range), np.max(self.analysis_range) + 1) / self.freq
         xrange_secs_plot = np.arange(np.min(self.sample_range), np.max(self.sample_range) + 1) / self.freq
         xlim_secs_plot = [np.min(self.sample_range) / self.freq, np.max(self.sample_range) / self.freq]
@@ -477,7 +571,7 @@ class PermutationTest:
         def plot_main(ax, sample_means, error_bar, color, color_baseline, idxs, idxs_baseline):
             ax.fill_between(xrange_secs_plot[idxs], sample_means[idxs] - error_bar[idxs], sample_means[idxs] + error_bar[idxs], color=color, alpha=0.15)
             ax.fill_between(xrange_secs_plot[idxs_baseline], sample_means[idxs_baseline] - error_bar[idxs_baseline], sample_means[idxs_baseline] + error_bar[idxs_baseline], color=color_baseline, alpha=0.4)
-            main_line, = ax.plot(xrange_secs_plot[idxs], sample_means[idxs], color=color)  # Save the line object
+            main_line, = ax.plot(xrange_secs_plot[idxs], sample_means[idxs], color=color, linewidth=1)
             ax.plot(xrange_secs_plot[idxs_baseline], sample_means[idxs_baseline], color=color, alpha=0.4)
             return main_line
 
@@ -509,7 +603,7 @@ class PermutationTest:
 
         # Subplot for test statistics
         ax_test = axs[1]
-        ax_test.plot(xrange_secs, results['p_per_timepoint'][x_range], color='dimgrey')
+        ax_test.plot(xrange_secs, results['p_per_timepoint'][x_range], color='dimgrey', linewidth=1)
         ax_test.axhline(self.p_threshold, linestyle='--', color='black', linewidth=1, alpha=0.5)
         ax_test.axvline(baseline_offset, linestyle='--', color='black', linewidth=1, alpha=0.5)
         ax_test.set_ylim(-0.1, 1.1)
