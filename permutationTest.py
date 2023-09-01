@@ -6,6 +6,7 @@ from matplotlib.patches import Rectangle
 from scipy.stats import t, shapiro, ttest_rel, ttest_ind, wilcoxon, ranksums, norm
 from scipy.interpolate import interp1d
 from statsmodels.stats.multitest import multipletests
+from IPython.display import display
 
 class PermutationTest:
     """
@@ -92,9 +93,6 @@ class PermutationTest:
         else:
             self.an_end = max(self.analysis_range)
 
-        print(self.an_start)
-        print(self.an_end)
-
         # Reformat data
         self.group_0 = self.eyedata_reformat(self.datafile_0)
         self.group_1 = self.eyedata_reformat(self.datafile_1)
@@ -108,18 +106,24 @@ class PermutationTest:
         # # Run the permutation test(s)
         if self.t_test:
             self.t_test_results = self.run_permutation_test(paired=True, parametric=True)
-            print("Permutation analysis with t-tests done.")
+            print("\nPermutation analysis with t-tests done.")
+            print(f"Clusters: {self.t_test_results['clusters']}")
+            print(f"Probabilities: {self.t_test_results['probs']}")
+            print(f"Masses: {self.t_test_results['masses']}")
         if self.wilcoxon_test:
             self.wilcoxon_test_results = self.run_permutation_test(paired=True, parametric=False)
-            print("Permutation analysis with Wilcoxons done.")
+            print("\nPermutation analysis with Wilcoxons done.")
+            print(f"Clusters: {self.t_test_results['clusters']}")
+            print(f"Probabilities: {self.t_test_results['probs']}")
+            print(f"Masses: {self.t_test_results['masses']}")
             
         # Summarize data
         self.group_0_summary = self.summarize_data(self.group_0, self.analysis_range)
         self.group_1_summary = self.summarize_data(self.group_1, self.analysis_range)
         
         # Paired t-test over the averages
-        self.means_summary, self.pairedT, self.pairedP = self.within_subjects_ttest(self.group_0_summary,
-                                                                                    self.group_1_summary)
+        self.means_summary, self.pairedT, self.pairedP = self.mean_ttest(self.group_0_summary,
+                                                                         self.group_1_summary)
 
     def eyedata_reformat(self, filename, ids=None):
         """
@@ -166,69 +170,6 @@ class PermutationTest:
 
         return grouped_data
 
-    def summarize_data(self, data, index_range):
-        """
-        Create a summary array based on the grouped_data and a specified index_range.
-
-        Args:
-            data (list): The list of tuples containing DataFrames and subject IDs, as produced by eyedata_reformat().
-            index_range (slice): A Python slice object indicating the index range for which to calculate the average.
-
-        Returns:
-            np.array: A NumPy array with three columns - 'id', 'trial number', 'average'.
-        """
-
-        # Initialize an empty list to store the rows of the summary array
-        summary_list = []
-
-        # Loop through the tuples in grouped_data
-        for df, subject_id in data:
-
-            # Loop through the trials in each DataFrame
-            for trial in df.index:
-
-                # Extract the data for the current trial and subject, and restrict to the given index_range
-                trial_data = df.loc[trial, index_range]
-
-                # Calculate the average of the trial data within the index range
-                trial_avg = np.nanmean(trial_data)  # Using nanmean to ignore NaNs
-
-                # Append the summary information as a tuple to the summary_list
-                summary_list.append((subject_id, trial, trial_avg))
-
-        # Convert the summary list to a NumPy array
-        summary_array = np.array(summary_list, dtype=[('id', 'U10'), ('trial', 'int'), ('average', 'float64')])
-
-        return summary_array
-    
-    def within_subjects_ttest(self, summary_array1, summary_array2):
-        """
-        Perform within-subjects t-test between two conditions.
-
-        Args:
-            summary_array1 (np.array): The summary array for condition 1, as produced by create_summary_array().
-            summary_array2 (np.array): The summary array for condition 2, as produced by create_summary_array().
-
-        Returns:
-            pd.DataFrame: A DataFrame containing the mean and t-test results per subject.
-        """
-
-        # Convert NumPy structured arrays to Pandas DataFrames
-        df1 = pd.DataFrame(summary_array1)
-        df2 = pd.DataFrame(summary_array2)
-
-        # Calculate mean across trials for each subject in each condition
-        mean_df1 = df1.groupby('id')['average'].mean().reset_index()
-        mean_df2 = df2.groupby('id')['average'].mean().reset_index()
-
-        # Merge the two mean DataFrames based on subject ID
-        merged_df = pd.merge(mean_df1, mean_df2, on='id', suffixes=('_c1', '_c2'))
-
-        # Perform paired t-test
-        t_stat, p_val = ttest_rel(merged_df['average_c1'], merged_df['average_c2'])
-
-        return merged_df, t_stat, p_val
-
     def hampel_filter(self, data, win_size, devs):
         """
         Apply the Hampel filter to smooth the data and remove outliers.
@@ -241,7 +182,6 @@ class PermutationTest:
         Returns:
             array: The filtered data.
         """
-
         filtered = np.array(data)
         size = int(win_size / 2)
 
@@ -252,7 +192,7 @@ class PermutationTest:
             if (filtered[i] > median + (devs * madev)) or (filtered[i] < median - (devs * madev)):
                 filtered[i] = median
         
-        return filtered
+        return filtered    
 
     def filter_and_interpolate(self):
         """
@@ -373,7 +313,6 @@ class PermutationTest:
         Returns:
             tuple: A tuple containing the new mean values for both groups after permutation.
         """
-
         # Preallocate matrices for the new partitions
         new_mean_0 = np.empty_like(means_0)
         new_mean_0[:] = np.nan
@@ -439,7 +378,6 @@ class PermutationTest:
         Returns:
             dict: A dictionary containing the test results and statistics.
         """
-
         # Check number of subjects in both conditions as well as the length of the whole dataset
         n_subj_0 = len(self.group_0)
         n_subj_1 = len(self.group_1)
@@ -614,3 +552,91 @@ class PermutationTest:
 
         plt.tight_layout()
         plt.show()
+
+    def summarize_data(self, data, index_range):
+        """
+        Create a summary array based on the grouped_data and a specified index_range.
+
+        Args:
+            data (list): The list of tuples containing DataFrames and subject IDs, as produced by eyedata_reformat().
+            index_range (slice): A Python slice object indicating the index range for which to calculate the average.
+
+        Returns:
+            np.array: A NumPy array with three columns - 'id', 'trial number', 'average'.
+        """
+        # Initialize an empty list to store the rows of the summary array
+        summary_list = []
+
+        # Loop through the tuples in grouped_data
+        for df, subject_id in data:
+
+            # Loop through the trials in each DataFrame
+            for trial in df.index:
+
+                # Extract the data for the current trial and subject, and restrict to the given index_range
+                trial_data = df.loc[trial, index_range]
+
+                # Calculate the average of the trial data within the index range
+                trial_avg = np.nanmean(trial_data)  # Using nanmean to ignore NaNs
+
+                # Append the summary information as a tuple to the summary_list
+                summary_list.append((subject_id, trial, trial_avg))
+
+        # Convert the summary list to a NumPy array
+        summary_array = np.array(summary_list, dtype=[('id', 'U10'), ('trial', 'int'), ('average', 'float64')])
+
+        return summary_array
+    
+    def mean_ttest(self, summary_array1, summary_array2):
+        """
+        Perform within-subjects t-test between two conditions.
+
+        Args:
+            summary_array1 (np.array): The summary array for condition 1, as produced by create_summary_array().
+            summary_array2 (np.array): The summary array for condition 2, as produced by create_summary_array().
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the mean and t-test results per subject.
+        """
+        # Convert NumPy structured arrays to Pandas DataFrames
+        df1 = pd.DataFrame(summary_array1)
+        df2 = pd.DataFrame(summary_array2)
+
+        # Calculate mean across trials for each subject in each condition
+        mean_df1 = df1.groupby('id')['average'].mean().reset_index()
+        mean_df2 = df2.groupby('id')['average'].mean().reset_index()
+
+        # Merge the two mean DataFrames based on subject ID
+        merged_df = pd.merge(mean_df1, mean_df2, on='id', suffixes=('_c1', '_c2'))
+
+        # Perform paired t-test
+        t_stat, p_val = ttest_rel(merged_df['average_c1'], merged_df['average_c2'])
+
+        return merged_df, t_stat, p_val
+    
+    def report_means(self):
+        """
+        Simply prints the averages and statistics - can be used in a Jupyter notebook.
+        """
+        print(f"Condition 1 overall mean = {self.means_summary['average_c1'].mean()}")
+        print(f"Condition 2 overall mean = {self.means_summary['average_c2'].mean()}")
+        print(f"\nPaired t = {self.pairedT}, p = {self.pairedP}")
+        print("\nMeans per condition per subject:")
+        display(self.means_summary)
+        print('\nCondition 1 means per trial per subject:')
+        display(pd.DataFrame(self.group_0_summary))
+        print('\nCondition 2 means per trial per subject:')
+        display(pd.DataFrame(self.group_1_summary))
+
+    def print_data(self):
+        """
+        Simply prints the original dataset - can be used in a Jupyter notebook.
+        """
+        print('------ Condition 1 ------')
+        for s in range(len(self.group_0)):
+            print(f"\nSubject ID: {self.group_0[s][1]}")
+            display(self.group_0[s][0]) 
+        print('\n\n\n------ Condition 2 ------')
+        for s in range(len(self.group_1)):
+            print(f"\nSubject ID: {self.group_1[s][1]}")
+            display(self.group_1[s][0])
