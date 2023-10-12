@@ -7,6 +7,59 @@ from scipy.stats import t, shapiro, ttest_rel, ttest_ind, wilcoxon, ranksums, no
 from scipy.interpolate import interp1d
 from statsmodels.stats.multitest import multipletests
 from IPython.display import display
+from copy import deepcopy
+
+def interp1gap(x, v=None, xq=None, maxgapval=np.inf, method='linear', interpval=np.nan, extrapval=np.nan):
+    """
+    Interpolate 1D data, handling gaps.
+    
+    Parameters:
+    - x: array-like, original x values or data if v is maxgapval
+    - v: array-like or scalar, original y values or maxgapval if only two arguments are provided
+    - xq: array-like, query points. If None, it will be the same as x
+    - maxgapval: maximum gap in x over which to interpolate
+    - method: interpolation method ('linear', 'nearest', etc.)
+    - interpval: value to use for large gaps
+    - extrapval: value to use for extrapolation
+    
+    Returns:
+    - vq: interpolated values at xq
+    """
+    
+    # If only two arguments are provided:
+    if v is not None and np.isscalar(v):
+        maxgapval = v
+        v = x
+        x = np.arange(len(v))
+    
+    if xq is None:
+        xq = x
+
+    # Remove NaNs:
+    v = v.astype(float)
+    valid_mask = ~np.isnan(v)
+    x = np.array(x)[valid_mask]
+    v = np.array(v)[valid_mask]
+    
+    # Create interpolation function:
+    f = interp1d(x, v, kind=method, bounds_error=False, fill_value=extrapval)
+    
+    # Interpolate at xq:
+    vq = f(xq)
+    
+    # Handle gaps:
+    if maxgapval != np.inf:
+        gaps = np.diff(x)
+        large_gaps = np.where(gaps > maxgapval)[0]
+        
+        for gap in large_gaps:
+            gap_start = x[gap]
+            gap_end = x[gap + 1]
+            
+            gap_mask = (xq > gap_start) & (xq < gap_end)
+            vq[gap_mask] = interpval
+    
+    return vq
 
 class PermutationTest:
     """
@@ -182,13 +235,18 @@ class PermutationTest:
         Returns:
             array: The filtered data.
         """
+
+        def mad(data, axis=None):
+            med = np.nanmedian(data, axis=axis)
+            return np.nanmedian(np.abs(data - med), axis=axis)
+
         filtered = np.array(data)
         size = int(win_size / 2)
 
         for i in range(size, len(data) - size - 1):
             window = filtered[i - (size - 1) : i + size]
-            median = np.median(window)
-            madev = np.median(np.abs(window - median))
+            median = np.nanmedian(window)
+            madev = mad(window)
             if (filtered[i] > median + (devs * madev)) or (filtered[i] < median - (devs * madev)):
                 filtered[i] = median
         
@@ -210,8 +268,9 @@ class PermutationTest:
                             filtered_values = self.hampel_filter(unfiltered_values, self.sliding_win_size, self.outlier_crit)
                             group[s][0].iloc[t] = pd.Series(filtered_values, index=group[s][0].columns)
                         if self.linear_interpolation:
-                            interpolated_values = interp1d(timepoints, group[s][0].iloc[t].to_numpy(), bounds_error=False, fill_value=np.nan)
-                            group[s][0].iloc[t] = pd.Series(filtered_values, index=group[s][0].columns)
+                            uninterpolated_values = group[s][0].iloc[t].to_numpy(copy=True)
+                            interpolated_values = interp1gap(uninterpolated_values, self.max_gap)
+                            group[s][0].iloc[t] = pd.Series(interpolated_values, index=group[s][0].columns)
 
         preprocess_group(self.group_0)
         preprocess_group(self.group_1)
